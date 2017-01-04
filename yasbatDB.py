@@ -15,7 +15,7 @@ import binascii
 import subprocess
 import ConfigParser
 
-RULES = '/Users/ned/Dropbox/yara/rules.yara'
+RULES = '/home/haxoorx/Documents/yara/rules.yara'
 
 def enumerateDir(path):
 	files = []
@@ -200,12 +200,40 @@ def dumpVersion(f):
 		return
 
 def getPEhash(f):
-	pehash = subprocess.Popen('python ~/Dropbox/python/intel\ tools/pehash.py ' + f, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-	return pehash.stdout.read().rstrip('\n')
+        try:
+            pehash = subprocess.Popen('python ~/Dropbox/python/intel\ tools/pehash.py ' + f, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            if "can't open" in pehash:
+                return False
+            else:
+                return pehash.stdout.read().rstrip('\n')
+        except:
+            return False
 
 def yaraScan(f):
-	rules = yara.compile(RULES)
-	return rules.match(f)
+        try:
+            rules = yara.compile(RULES)
+            return rules.match(f)
+        except:
+            return False
+    
+def compareArrays(a,b):
+  
+    matchesCount=0
+    for i,field in enumerate(a):
+        
+        if field:
+            if field==b[i]:
+                a[i]=""
+                matchesCount+=1
+        else:
+            matchesCount+=1
+                
+    if matchesCount == len(a):
+        print "Exact match of existing file in database, record won't be saved in table fileDB"
+        return False
+    
+    return a
+            
 
 def outputData(d):
 	print '=' * 130
@@ -322,23 +350,25 @@ def save_to_db(samp):
     except:
         resource_hashes = []
 
-    fileValues = (file_md5,file_sha256,file_ssdeep,file_magic,file_type,file_compile_time,file_import_hash,file_pehash,file_rich_hash,file_certificate_hash)
+    fileValues = [None,file_md5,file_sha256,file_ssdeep,file_magic,file_type,file_compile_time,file_import_hash,file_pehash,file_rich_hash,file_certificate_hash,None]
 
     if os.path.isdir("./yasbatDB") is False:
         os.mkdir("./yasbatDB")
     if os.path.isfile("./yasbatDB/yasbat.db") is False:
         conn = sqlite3.connect("./yasbatDB/yasbat.db")
         conn.execute('''CREATE TABLE fileDB (
-                        file_md5 VARCHAR(32) NOT NULL PRIMARY KEY,
-                        file_sha256 VARCHAR(64) NOT NULL,
-                        file_ssdeep VARCHAR(255) NOT NULL,
-                        file_magic VARCHAR(255) NOT NULL,
-                        file_type VARCHAR(255) NOT NULL,
-                        file_compile_time VARCHAR(255) NOT NULL,
-                        file_import_hash VARCHAR(32) NOT NULL,
-                        file_pehash VARCHAR(64) NOT NULL,
-                        file_rich_hash VARCHAR(64) NOT NULL,
-                        file_certificate_hash VARCHAR(64) NOT NULL)''')
+                        id INTEGER PRIMARY KEY,
+                        file_md5 VARCHAR(32),
+                        file_sha256 VARCHAR(64),
+                        file_ssdeep VARCHAR(255),
+                        file_magic VARCHAR(255),
+                        file_type VARCHAR(255),
+                        file_compile_time VARCHAR(255),
+                        file_import_hash VARCHAR(32),
+                        file_pehash VARCHAR(64),
+                        file_rich_hash VARCHAR(64),
+                        file_certificate_hash VARCHAR(64),
+                        is_duplicate_of INT(1) DEFAULT NULL )''')
         conn.execute('''CREATE TABLE yaraDB (
                         file_md5 VARCHAR(32) NOT NULL,
                         yara_hit VARCHAR(255) NOT NULL,
@@ -360,11 +390,36 @@ def save_to_db(samp):
     else:
         conn = sqlite3.connect('./yasbatDB/yasbat.db')
 
+    #check for duplicates based on md5hash
+    duplicateID=False
+    sql="SELECT * FROM fileDB WHERE file_md5='"+fileValues[1]+"'"
     try:
-        fileStmt = "INSERT INTO fileDB VALUES (?,?,?,?,?,?,?,?,?,?)"
-        conn.execute(fileStmt,(fileValues))
-    except sqlite3.IntegrityError:
-        return
+        duplicate=conn.execute(sql).fetchone()
+    except:
+        #It's not a duplicate
+        pass
+    
+    insert=True
+    
+    if duplicate:
+        
+        compareCheck=compareArrays(fileValues,duplicate)
+        if compareCheck:
+          
+            if fileValues:
+                
+                fileValues[11]=duplicate.id
+                insert=False
+        else:
+            insert=False
+    
+    if insert:
+    
+        try:
+            fileStmt = "INSERT INTO fileDB VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+            conn.execute(fileStmt,(fileValues))
+        except sqlite3.IntegrityError:
+            return
 
     try:
         yaraStmt = "INSERT INTO yaraDB VALUES (?,?)"
