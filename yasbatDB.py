@@ -15,7 +15,25 @@ import binascii
 import subprocess
 import ConfigParser
 
-RULES = '/home/haxoorx/Documents/yara/rules.yara'
+
+
+def ConfigSectionMap(section):
+    dict1 = {}
+    options = Config.options(section)
+    for option in options:
+        try:
+            dict1[option] = Config.get(section, option)
+            if dict1[option] == -1:
+                DebugPrint("skip: %s" % option)
+        except:
+            print("exception on %s!" % option)
+            dict1[option] = None
+    return dict1
+
+Config = ConfigParser.ConfigParser()
+Config.read("config.ini")
+
+RULES = ConfigSectionMap("folders")['yararules']
 
 def enumerateDir(path):
 	files = []
@@ -351,11 +369,13 @@ def save_to_db(samp):
         resource_hashes = []
 
     fileValues = [None,file_md5,file_sha256,file_ssdeep,file_magic,file_type,file_compile_time,file_import_hash,file_pehash,file_rich_hash,file_certificate_hash,None]
-
-    if os.path.isdir("./yasbatDB") is False:
-        os.mkdir("./yasbatDB")
-    if os.path.isfile("./yasbatDB/yasbat.db") is False:
-        conn = sqlite3.connect("./yasbatDB/yasbat.db")
+    
+    DBfolder=ConfigSectionMap("folders")['dbfolder']
+    
+    if os.path.isdir(DBfolder) is False:
+        os.mkdir(DBfolder)
+    if os.path.isfile(DBfolder+"yasbat.db") is False:
+        conn = sqlite3.connect(DBfolder+"yasbat.db")
         conn.execute('''CREATE TABLE fileDB (
                         id INTEGER PRIMARY KEY,
                         file_md5 VARCHAR(32),
@@ -388,7 +408,7 @@ def save_to_db(samp):
                         resource_sha256 VARCHAR(64) NOT NULL,
                         FOREIGN KEY(file_md5) REFERENCES fileDB(file_md5))''')
     else:
-        conn = sqlite3.connect('./yasbatDB/yasbat.db')
+        conn = sqlite3.connect(DBfolder+'yasbat.db')
 
     #check for duplicates based on md5hash
     duplicateID=False
